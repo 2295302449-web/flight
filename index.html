@@ -11,19 +11,32 @@
         <header>
             <div class="header-content">
                 <h1>特价机票发现平台</h1>
-                <div class="search-bar">
-                    <div class="search-inputs">
-                        <input type="text" id="departure" placeholder="出发地">
-                        <input type="text" id="destination" placeholder="目的地">
-                        <input type="date" id="departure-date">
-                        <button id="search-btn" class="btn-primary">搜索</button>
+                <div class="header-top">
+                    <div class="ai-intent-panel">
+                        <div class="ai-intent-title">AI智能推荐目的地</div>
+                        <div class="ai-intent-subtitle">描述你的时间/预算/偏好，我会结合低价候选给你推荐</div>
+                        <textarea id="ai-intent" rows="4" placeholder="例如：6月下旬从上海出发，预算800以内，想看海和日落，喜欢美食，尽量不要红眼航班。"></textarea>
+                        <div class="ai-intent-actions">
+                            <button id="ai-intent-btn" class="btn-primary">开始推荐</button>
+                        </div>
+                        <div class="ai-intent-output" id="ai-intent-output"></div>
                     </div>
-                    <!-- 日期模糊选项 -->
-                    <div class="date-options">
-                        <span class="date-option" data-days="7">最近7天</span>
-                        <span class="date-option" data-days="30">最近30天</span>
-                        <span class="date-option" data-days="60">最近60天</span>
-                        <span class="date-option" data-days="90">最近90天</span>
+
+                    <div class="search-panel">
+                        <div class="search-bar">
+                            <div class="search-inputs">
+                                <input type="text" id="departure" placeholder="出发地">
+                                <input type="text" id="destination" placeholder="目的地">
+                                <input type="date" id="departure-date">
+                                <button id="search-btn" class="btn-primary">搜索</button>
+                            </div>
+                            <div class="date-options">
+                                <span class="date-option" data-days="7">最近7天</span>
+                                <span class="date-option" data-days="30">最近30天</span>
+                                <span class="date-option" data-days="60">最近60天</span>
+                                <span class="date-option" data-days="90">最近90天</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -122,16 +135,6 @@
                 <h2>本周特价聚合</h2>
                 <div class="deals-carousel" id="deals-carousel">
                     <!-- 特价机票轮播将通过JS动态生成 -->
-                </div>
-            </div>
-
-            <div class="ai-recommendations">
-                <h2>AI智能推荐</h2>
-                <div class="mood-tags">
-                    <button class="mood-tag">想躺平</button>
-                    <button class="mood-tag">去撒野</button>
-                    <button class="mood-tag">吃美食</button>
-                    <button class="mood-tag">看历史</button>
                 </div>
             </div>
         </section>

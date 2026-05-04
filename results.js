@@ -297,22 +297,82 @@ const priceMin = document.getElementById('price-min');
 const priceMax = document.getElementById('price-max');
 const priceDisplay = document.querySelector('.price-display');
 
+let allFlights = flightData.slice();
+let activeDaysFilter = null;
+
 // 初始化
 function init() {
     // 绑定事件
     bindEvents();
-    // 渲染默认航班列表
-    renderFlights(flightData);
     // 处理URL参数
     handleUrlParams();
+    // 根据输入拉取数据并渲染
+    fetchAndRenderFromInputs();
+}
+
+async function fetchSearch(params) {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set('from', params.from);
+    if (params?.to) qs.set('to', params.to);
+    if (params?.date) qs.set('date', params.date);
+    if (params?.days) qs.set('days', String(params.days));
+    const res = await fetch(`/api/search?${qs.toString()}`, { method: 'GET' });
+    if (!res.ok) throw new Error('search_failed');
+    return await res.json();
+}
+
+function syncPriceRange(flights) {
+    if (!Array.isArray(flights) || flights.length === 0) return;
+    const prices = flights.map(f => Number(f.price)).filter(n => Number.isFinite(n));
+    if (prices.length === 0) return;
+    const minP = Math.max(0, Math.min(...prices));
+    const maxP = Math.max(...prices);
+    const maxRounded = Math.min(20000, Math.ceil(maxP / 100) * 100);
+    priceMin.min = '0';
+    priceMin.max = String(maxRounded);
+    priceMax.min = '0';
+    priceMax.max = String(maxRounded);
+    priceMin.value = String(Math.min(Number(priceMin.value || 0), maxRounded));
+    priceMax.value = String(Math.max(Number(priceMax.value || maxRounded), Number(priceMin.value || 0)));
+    updatePriceDisplay();
+}
+
+function applyAllFilters() {
+    let base = allFlights.slice();
+    if (activeDaysFilter) {
+        base = filterByDate(base, activeDaysFilter);
+    }
+    return applyFilters(base);
+}
+
+async function fetchAndRenderFromInputs(extra) {
+    const from = document.getElementById('departure')?.value?.trim() || '';
+    const to = document.getElementById('destination')?.value?.trim() || '';
+    const date = document.getElementById('departure-date')?.value?.trim() || '';
+    const days = extra?.days ?? (activeDaysFilter && !date ? activeDaysFilter : null);
+
+    try {
+        const data = await fetchSearch({ from, to, date, days });
+        if (Array.isArray(data.flights) && data.flights.length) {
+            allFlights = data.flights;
+        } else {
+            allFlights = flightData.slice();
+        }
+    } catch (e) {
+        allFlights = flightData.slice();
+    }
+
+    syncPriceRange(allFlights);
+    renderFlights(applyAllFilters());
 }
 
 // 绑定事件
 function bindEvents() {
     // 搜索按钮
     searchBtn.addEventListener('click', () => {
-        const filteredFlights = applyFilters(flightData);
-        renderFlights(filteredFlights);
+        activeDaysFilter = null;
+        document.querySelectorAll('.date-option').forEach(opt => opt.classList.remove('active'));
+        fetchAndRenderFromInputs();
     });
 
     // 关闭模态框
@@ -333,12 +393,10 @@ function bindEvents() {
 
     // 价格筛选
     priceMin.addEventListener('change', () => {
-        const filteredFlights = applyFilters(flightData);
-        renderFlights(filteredFlights);
+        renderFlights(applyAllFilters());
     });
     priceMax.addEventListener('change', () => {
-        const filteredFlights = applyFilters(flightData);
-        renderFlights(filteredFlights);
+        renderFlights(applyAllFilters());
     });
 
     // 标签页切换
@@ -364,8 +422,8 @@ function bindEvents() {
             
             // 应用日期筛选
             const days = parseInt(option.dataset.days);
-            const filteredFlights = filterByDate(flightData, days);
-            renderFlights(filteredFlights);
+            activeDaysFilter = days;
+            renderFlights(applyAllFilters());
         });
     });
 }
@@ -479,7 +537,7 @@ function getBadgeHtml(badge) {
 
 // 显示航班详情
 function showFlightDetail(flightId) {
-    const flight = flightData.find(f => f.id === flightId);
+    const flight = allFlights.find(f => f.id === flightId);
     if (!flight) return;
 
     modalBody.innerHTML = `
@@ -537,6 +595,7 @@ function handleUrlParams() {
     if (urlParams.has('to')) filters.to = urlParams.get('to');
     if (urlParams.has('date')) filters.date = urlParams.get('date');
     if (urlParams.has('template')) filters.template = urlParams.get('template');
+    if (urlParams.has('days')) filters.days = urlParams.get('days');
     
     // 填充搜索框
     if (filters.from) document.getElementById('departure').value = filters.from;
@@ -546,6 +605,16 @@ function handleUrlParams() {
     // 应用筛选
     if (filters.template) {
         // 这里可以根据模板应用相应的筛选
+    }
+
+    if (filters.days) {
+        const days = parseInt(filters.days, 10);
+        if (Number.isFinite(days)) {
+            activeDaysFilter = days;
+            document.querySelectorAll('.date-option').forEach(opt => {
+                opt.classList.toggle('active', parseInt(opt.dataset.days, 10) === days);
+            });
+        }
     }
 }
 

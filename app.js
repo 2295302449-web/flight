@@ -374,16 +374,44 @@ const favoriteFlights = [
     }
 ];
 
+let currentFlights = flightData.slice();
+
 // 初始化
 function init() {
     // 绑定事件
     bindEvents();
-    // 渲染特价机票
-    renderDeals();
-    // 渲染默认航班列表
-    renderFlights(flightData);
+    // 渲染特价机票与默认列表
+    loadFeaturedFlights();
     // 渲染关注航班
     renderFavorites();
+}
+
+async function fetchDeals(params) {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set('from', params.from);
+    if (params?.windowDays) qs.set('windowDays', String(params.windowDays));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const url = `/api/deals?${qs.toString()}`;
+    const res = await fetch(url, { method: 'GET' });
+    if (!res.ok) throw new Error('deals_fetch_failed');
+    return await res.json();
+}
+
+async function loadFeaturedFlights() {
+    const from = document.getElementById('departure')?.value?.trim() || '上海';
+    try {
+        const data = await fetchDeals({ from, windowDays: 30, limit: 20 });
+        if (Array.isArray(data.deals) && data.deals.length) {
+            currentFlights = data.deals;
+        } else {
+            currentFlights = flightData.slice();
+        }
+    } catch (e) {
+        currentFlights = flightData.slice();
+    }
+
+    renderDeals(currentFlights.slice(0, 3));
+    renderFlights(currentFlights);
 }
 
 // 绑定事件
@@ -439,7 +467,7 @@ function bindEvents() {
     // 高级筛选变化
     document.querySelectorAll('#filter-panel input').forEach(input => {
         input.addEventListener('change', () => {
-            const filteredFlights = applyFilters(flightData);
+            const filteredFlights = applyFilters(currentFlights);
             renderFlights(filteredFlights);
         });
     });
@@ -481,6 +509,103 @@ function bindEvents() {
             window.location.href = `results.html?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&date=${encodeURIComponent(date)}&days=${days}`;
         });
     });
+
+    // AI文本推荐
+    const aiIntent = document.getElementById('ai-intent');
+    const aiBtn = document.getElementById('ai-intent-btn');
+    const aiOutput = document.getElementById('ai-intent-output');
+
+    function extractBudget(text) {
+        const t = String(text || '');
+        const m1 = t.match(/预算\s*([0-9]{2,6})/);
+        if (m1) return parseInt(m1[1], 10);
+        const m2 = t.match(/([0-9]{2,6})\s*(元|块|rmb|RMB|￥|¥)/);
+        if (m2) return parseInt(m2[1], 10);
+        return null;
+    }
+
+    function detectMood(text) {
+        const t = String(text || '');
+        if (/(美食|吃|火锅|小吃|烧烤)/.test(t)) return '吃美食';
+        if (/(历史|人文|博物馆|古城|遗址|古镇)/.test(t)) return '看历史';
+        if (/(海|沙滩|日落|度假|躺平|慢生活)/.test(t)) return '想躺平';
+        if (/(自然|风景|徒步|露营|雪山|撒野|夜景)/.test(t)) return '去撒野';
+        return '想躺平';
+    }
+
+    function toPitfalls(f) {
+        const p = [];
+        if (f.isRedEye) p.push('红眼航班');
+        if (!f.hasLuggage) p.push('无免费行李');
+        if (!f.isRefundable) p.push('退改限制');
+        if (f.transferNum && f.transferNum > 1) p.push('中转段数偏多');
+        return p.length ? p : ['综合风险可控'];
+    }
+
+    function buildLocalAiResult({ mood, from, budget, limit }) {
+        const list = (currentFlights || []).slice().sort((a, b) => (a.price || 0) - (b.price || 0));
+        const picks = list.slice(0, Math.max(3, limit || 5));
+        return {
+            narrative: `（本地演示）我按“${mood}”的偏好${budget ? `和预算¥${budget}` : ''}，从当前展示的低价候选里挑了这些目的地：`,
+            recommendations: picks.map(f => ({
+                to: f.to,
+                price: f.price,
+                date: f.date,
+                airline: f.airline,
+                flightNo: f.flightNo,
+                reason: '示例推荐：部署到Vercel后会结合实时/缓存数据给出更准的推荐',
+                pitfalls: toPitfalls(f),
+                badges: f.badges || [],
+                ratingScore: f.ratingScore || 0
+            }))
+        };
+    }
+
+    async function runAiRecommend(promptText) {
+        if (!aiOutput) return;
+        aiOutput.classList.remove('show');
+        aiOutput.innerHTML = '';
+
+        const from = document.getElementById('departure')?.value?.trim() || '上海';
+        const budget = extractBudget(promptText);
+        const mood = detectMood(promptText);
+        const payload = { from, mood, budget, windowDays: 30, limit: 5, prompt: promptText };
+
+        const canCallApi = window.location.protocol === 'http:' || window.location.protocol === 'https:';
+        if (!canCallApi) {
+            renderAiRecommend(aiOutput, buildLocalAiResult(payload));
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/ai-recommend', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error('ai_failed');
+            const data = await res.json();
+            renderAiRecommend(aiOutput, data);
+        } catch (e) {
+            renderAiRecommend(aiOutput, buildLocalAiResult(payload));
+        }
+    }
+
+    document.querySelectorAll('.ai-quick-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const p = btn.dataset.prompt || btn.textContent.trim();
+            if (aiIntent) aiIntent.value = p;
+            await runAiRecommend(p);
+        });
+    });
+
+    if (aiBtn) {
+        aiBtn.addEventListener('click', async () => {
+            const text = aiIntent ? aiIntent.value.trim() : '';
+            const prompt = text || (aiIntent ? aiIntent.placeholder : '');
+            await runAiRecommend(prompt);
+        });
+    }
 }
 
 // 应用模板
@@ -577,11 +702,11 @@ function filterByDate(flights, days) {
 }
 
 // 渲染特价机票
-function renderDeals() {
-    const deals = flightData.slice(0, 3);
+function renderDeals(deals) {
+    const list = Array.isArray(deals) ? deals : [];
     dealsCarousel.innerHTML = '';
 
-    deals.forEach(flight => {
+    list.forEach(flight => {
         const dealCard = document.createElement('div');
         dealCard.className = 'deal-card';
         dealCard.innerHTML = `
@@ -595,6 +720,34 @@ function renderDeals() {
         `;
         dealsCarousel.appendChild(dealCard);
     });
+}
+
+function renderAiRecommend(container, data) {
+    const recs = Array.isArray(data?.recommendations) ? data.recommendations : [];
+    const title = data?.narrative || '根据你的偏好，我推荐这些目的地：';
+    if (recs.length === 0) {
+        container.classList.add('show');
+        container.innerHTML = `<div class="ai-title">${title}</div><div class="ai-meta">暂时没有找到合适的候选，换个心情或稍后再试。</div>`;
+        return;
+    }
+
+    const itemsHtml = recs.map(r => {
+        const pits = Array.isArray(r.pitfalls) ? r.pitfalls.slice(0, 3).join(' / ') : '';
+        const badges = Array.isArray(r.badges) ? r.badges.slice(0, 3).join(' / ') : '';
+        return `
+            <div class="ai-item">
+                <div class="ai-item-top">
+                    <div><strong>${r.to}</strong> · ${r.airline} ${r.flightNo}</div>
+                    <div class="ai-price">¥${r.price}</div>
+                </div>
+                <div class="ai-meta">${r.date || ''} · ${r.reason || ''}</div>
+                <div class="ai-meta">${badges}${badges && pits ? ' · ' : ''}${pits}</div>
+            </div>
+        `;
+    }).join('');
+
+    container.classList.add('show');
+    container.innerHTML = `<div class="ai-title">${title}</div>${itemsHtml}`;
 }
 
 // 渲染航班列表
@@ -672,7 +825,7 @@ function getBadgeHtml(badge) {
 
 // 显示航班详情
 function showFlightDetail(flightId) {
-    const flight = flightData.find(f => f.id === flightId);
+    const flight = currentFlights.find(f => f.id === flightId);
     if (!flight) return;
 
     modalBody.innerHTML = `
