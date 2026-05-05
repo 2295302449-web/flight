@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>特价机票发现平台</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1>特价机票发现平台</h1>
+                <div class="header-top">
+                    <div class="ai-intent-panel">
+                        <div class="ai-intent-title">AI智能推荐目的地</div>
+                        <div class="ai-intent-subtitle">描述你的时间/预算/偏好，我会结合低价候选给你推荐</div>
+                        <textarea id="ai-intent" rows="4" placeholder="例如：6月下旬从上海出发，预算800以内，想看海和日落，喜欢美食，尽量不要红眼航班。"></textarea>
+                        <div class="ai-intent-actions">
+                            <button id="ai-intent-btn" class="btn-primary">开始推荐</button>
+                        </div>
+                        <div class="ai-intent-output" id="ai-intent-output"></div>
+                    </div>
+
+                    <div class="search-panel">
+                        <div class="search-bar">
+                            <div class="search-inputs">
+                                <input type="text" id="departure" placeholder="出发地">
+                                <input type="text" id="destination" placeholder="目的地">
+                                <input type="date" id="departure-date">
+                                <button id="search-btn" class="btn-primary">搜索</button>
+                            </div>
+                            <div class="date-options">
+                                <span class="date-option" data-days="7">最近7天</span>
+                                <span class="date-option" data-days="30">最近30天</span>
+                                <span class="date-option" data-days="60">最近60天</span>
+                                <span class="date-option" data-days="90">最近90天</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- 导航标签 -->
+        <nav class="nav-tabs">
+            <button class="tab-btn active" data-tab="search">机票搜索</button>
+            <button class="tab-btn" data-tab="deals">特价推荐</button>
+            <button class="tab-btn" data-tab="favorites">我的关注</button>
+            <button class="tab-btn" data-tab="alerts">价格提醒</button>
+        </nav>
+
+        <!-- 机票搜索 -->
+        <section id="search-section" class="tab-content active">
+            <!-- 快捷偏好模板 -->
+            <div class="preference-templates">
+                <h3>快捷偏好模板</h3>
+                <div class="template-buttons">
+                    <button class="template-btn" data-template="student">学生党·省钱优先</button>
+                    <button class="template-btn" data-template="office">上班族·周末友好</button>
+                    <button class="template-btn" data-template="family">家庭·舒适出行</button>
+                    <button class="template-btn" data-template="spontaneous">说走就走·盲盒特价</button>
+                </div>
+            </div>
+
+            <!-- 高级筛选 -->
+            <div class="advanced-filters">
+                <button id="toggle-filters" class="btn-secondary">更多筛选</button>
+                <div id="filter-panel" class="filter-panel">
+                    <div class="filter-section">
+                        <h4>行程偏好</h4>
+                        <div class="filter-group">
+                            <label><input type="checkbox" id="direct-flight"> 仅直飞</label>
+                            <label><input type="checkbox" id="no-red-eye"> 不看红眼航班</label>
+                            <label><input type="checkbox" id="day-flight"> 仅日间航班</label>
+                            <label><input type="checkbox" id="short-layover"> 短中转优先</label>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-section">
+                        <h4>行李与退改</h4>
+                        <div class="filter-group">
+                            <label><input type="checkbox" id="with-baggage"> 仅含托运行李</label>
+                            <label><input type="checkbox" id="exclude-no-baggage"> 排除无行李廉航</label>
+                            <label><input type="checkbox" id="refundable"> 仅可退改</label>
+                            <label><input type="checkbox" id="exclude-bundles"> 排除捆绑销售</label>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-section">
+                        <h4>价格偏好</h4>
+                        <div class="filter-group">
+                            <label><input type="radio" name="price-preference" value="lowest"> 低价优先</label>
+                            <label><input type="radio" name="price-preference" value="value"> 性价比优先</label>
+                            <label><input type="radio" name="price-preference" value="time"> 时间优先</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 搜索结果 -->
+            <div class="search-results" id="search-results">
+                <h2>搜索结果</h2>
+                <div class="results-container">
+                    <div class="filter-sidebar">
+                        <div class="sidebar-section">
+                            <h4>价格区间</h4>
+                            <div class="price-range">
+                                <input type="range" id="price-min" min="0" max="2000" value="0">
+                                <input type="range" id="price-max" min="0" max="2000" value="2000">
+                                <div class="price-display">¥0 - ¥2000</div>
+                            </div>
+                        </div>
+                        <div class="sidebar-section">
+                            <h4>航司</h4>
+                            <div class="airline-filters">
+                                <label><input type="checkbox"> 中国国航</label>
+                                <label><input type="checkbox"> 南方航空</label>
+                                <label><input type="checkbox"> 东方航空</label>
+                                <label><input type="checkbox"> 深圳航空</label>
+                            </div>
+                        </div>
+                        <button class="btn-secondary">更多筛选</button>
+                    </div>
+                    <div class="flights-list" id="flights-list">
+                        <!-- 航班列表将通过JS动态生成 -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 特价推荐 -->
+        <section id="deals-section" class="tab-content">
+            <div class="weekly-deals">
+                <h2>本周特价聚合</h2>
+                <div class="deals-carousel" id="deals-carousel">
+                    <!-- 特价机票轮播将通过JS动态生成 -->
+                </div>
+            </div>
+        </section>
+
+        <!-- 我的关注 -->
+        <section id="favorites-section" class="tab-content">
+            <div class="favorites-container">
+                <h2>我的关注</h2>
+                <div class="favorites-list" id="favorites-list">
+                    <!-- 收藏列表将通过JS动态生成 -->
+                </div>
+            </div>
+        </section>
+
+        <!-- 价格提醒 -->
+        <section id="alerts-section" class="tab-content">
+            <div class="alerts-container">
+                <h2>价格提醒</h2>
+                <div class="alert-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>出发城市</label>
+                            <input type="text" id="alert-departure" placeholder="例如：北京">
+                        </div>
+                        <div class="form-group">
+                            <label>到达城市</label>
+                            <input type="text" id="alert-destination" placeholder="例如：上海">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>预算价格</label>
+                            <input type="number" id="alert-budget" placeholder="例如：500">
+                        </div>
+                        <div class="form-group">
+                            <label>提醒频率</label>
+                            <select id="alert-frequency">
+                                <option value="daily">每日</option>
+                                <option value="weekly">每周</option>
+                                <option value="monthly">每月</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button id="create-alert-btn" class="btn-primary">创建提醒</button>
+                </div>
+                <div class="alerts-list" id="alerts-list">
+                    <!-- 提醒列表将通过JS动态生成 -->
+                </div>
+            </div>
+        </section>
+
+        <!-- 航班详情模态框 -->
+        <div class="modal" id="flight-modal">
+            <div class="modal-content">
+                <span class="close-modal">&times;</span>
+                <div class="modal-body" id="modal-body">
+                    <!-- 航班详情将通过JS动态生成 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
