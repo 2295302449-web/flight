@@ -54,6 +54,101 @@ function buildReason(f, mood, budget) {
   return parts.join("，") || "综合性价比不错";
 }
 
+function stripCodeFences(text) {
+  const t = String(text || "").trim();
+  const fenced = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenced ? fenced[1].trim() : t;
+}
+
+function safeJsonParse(text) {
+  const t = stripCodeFences(text);
+  try {
+    return JSON.parse(t);
+  } catch {
+    return null;
+  }
+}
+
+function buildGlmSystemPrompt() {
+  return [
+    "你是“特价机票发现与出行决策助手”。",
+    "你的任务：根据用户需求，从给定的候选航班/目的地数据中挑选更合适的推荐，并给出可解释理由与避坑点。",
+    "约束：只能从候选数据中选择与引用，不允许编造任何城市、航班号、价格、日期。",
+    "输出：必须只输出 JSON（不要 Markdown/不要代码块/不要额外文字）。",
+    "JSON Schema：",
+    "{",
+    '  "narrative": "一句话总述",',
+    '  "recommendations": [',
+    "    {",
+    '      "to": "目的地城市",',
+    '      "price": 价格数字,',
+    '      "date": "YYYY-MM-DD",',
+    '      "airline": "航司名称",',
+    '      "flightNo": "航班号",',
+    '      "reason": "推荐理由（自然语言）",',
+    '      "pitfalls": ["避坑点1","避坑点2"]',
+    "    }",
+    "  ]",
+    "}",
+  ].join("\n");
+}
+
+function buildCandidatesForPrompt(deals) {
+  return (Array.isArray(deals) ? deals : []).slice(0, 20).map((f) => ({
+    to: f.to,
+    price: f.price,
+    date: f.date,
+    time: f.time,
+    airline: f.airline,
+    flightNo: f.flightNo,
+    isRedEye: !!f.isRedEye,
+    hasLuggage: !!f.hasLuggage,
+    isRefundable: !!f.isRefundable,
+    transferNum: f.transferNum,
+    sceneTags: Array.isArray(f.sceneTags) ? f.sceneTags : [],
+    ratingScore: f.ratingScore,
+    badges: Array.isArray(f.badges) ? f.badges : [],
+  }));
+}
+
+async function callGlmJson({ model, apiKey, system, user }) {
+  const baseUrl =
+    (process.env.GLM_BASE_URL || "").trim() ||
+    "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+  const res = await fetch(baseUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.2,
+      top_p: 0.7,
+      stream: false,
+    }),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) {
+    const err = new Error(
+      (json && (json.error?.message || json.message || json.error)) ||
+        `GLM request failed (HTTP ${res.status})`
+    );
+    err.status = res.status;
+    throw err;
+  }
+  const content =
+    json.choices?.[0]?.message?.content ??
+    json.choices?.[0]?.text ??
+    json.data?.choices?.[0]?.message?.content ??
+    "";
+  return { content: String(content || ""), raw: json };
+}
+
 module.exports = async (req, res) => {
   if (allowCors(req, res)) return;
   if ((req.method || "GET").toUpperCase() !== "POST") {
@@ -72,6 +167,7 @@ module.exports = async (req, res) => {
   const budget = Number(body.budget);
   const mood = String(body.mood || "").trim() || "想躺平";
   const cacheSeconds = parseIntParam(body.cacheSeconds, 900);
+  const userPrompt = String(body.prompt || body.requirement || "").trim();
 
   const key = `ai:recommend:${from}:w${windowDays}:m${mood}:b${
     Number.isFinite(budget) ? budget : "na"
@@ -100,6 +196,80 @@ module.exports = async (req, res) => {
 
   const tags = moodToTags[mood] || [];
   const deals = Array.isArray(snapshot.deals) ? snapshot.deals : [];
+
+  const aiProvider = (process.env.AI_PROVIDER || "").trim().toLowerCase();
+  const glmKey = (process.env.GLM_API_KEY || "").trim();
+  const glmModel = (process.env.GLM_MODEL || "").trim();
+  const aiDebug = (process.env.AI_DEBUG || "").trim() === "1";
+
+  if (aiProvider === "glm" && glmKey && glmModel) {
+    const candidates = buildCandidatesForPrompt(deals);
+    const userText = [
+      `用户需求：${userPrompt || "（未提供额外描述）"}`,
+      `出发地：${from}`,
+      `时间窗：未来${windowDays}天`,
+      `偏好标签：${mood}`,
+      Number.isFinite(budget) ? `预算：¥${budget}` : "预算：未提供",
+      `候选数据（仅可从中选择）：${JSON.stringify(candidates)}`,
+      "请输出 JSON。",
+    ].join("\n");
+
+    try {
+      const { content } = await callGlmJson({
+        model: glmModel,
+        apiKey: glmKey,
+        system: buildGlmSystemPrompt(),
+        user: userText,
+      });
+      const parsed = safeJsonParse(content);
+      if (parsed && typeof parsed === "object") {
+        const narrative =
+          typeof parsed.narrative === "string" ? parsed.narrative : "";
+        const recs = Array.isArray(parsed.recommendations)
+          ? parsed.recommendations
+          : [];
+        const normalized = {
+          from,
+          windowDays,
+          mood,
+          budget: Number.isFinite(budget) ? budget : null,
+          generatedAt: new Date().toISOString(),
+          narrative:
+            narrative ||
+            `我按“${mood}”的偏好${
+              Number.isFinite(budget) ? `和预算¥${budget}` : ""
+            }，从你出发地「${from}」未来${windowDays}天的低价候选里推荐：`,
+          recommendations: recs.slice(0, Math.max(3, limit)).map((r) => ({
+            to: String(r.to || "").trim(),
+            price: Number(r.price),
+            date: String(r.date || "").trim(),
+            airline: String(r.airline || "").trim(),
+            flightNo: String(r.flightNo || "").trim(),
+            reason: String(r.reason || "").trim(),
+            pitfalls: Array.isArray(r.pitfalls)
+              ? r.pitfalls.map((x) => String(x)).slice(0, 3)
+              : [],
+            badges: Array.isArray(r.badges) ? r.badges.slice(0, 4) : [],
+            ratingScore: Number(r.ratingScore) || 0,
+          })),
+          aiProvider: "glm",
+          model: glmModel,
+        };
+
+        if (hasUpstashEnv()) {
+          await setJson(key, normalized, cacheSeconds).catch(() => null);
+        }
+
+        return sendJson(res, 200, {
+          source: "glm",
+          ...(aiDebug ? { debugPreview: stripCodeFences(content).slice(0, 600) } : null),
+          ...normalized,
+        });
+      }
+    } catch (e) {
+      // fall through to rule-based recommendations
+    }
+  }
 
   const ranked = deals
     .map((f) => {
@@ -139,11 +309,15 @@ module.exports = async (req, res) => {
     generatedAt: new Date().toISOString(),
     narrative,
     recommendations,
+    aiProvider: "rules",
   };
 
   if (hasUpstashEnv()) {
     await setJson(key, result, cacheSeconds).catch(() => null);
   }
 
-  return sendJson(res, 200, { source: hasUpstashEnv() ? "fresh" : "mock", ...result });
+  return sendJson(res, 200, {
+    source: hasUpstashEnv() ? "fresh" : "mock",
+    ...result,
+  });
 };
