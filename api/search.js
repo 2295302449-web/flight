@@ -28,9 +28,16 @@ const cityToIata = {
   长沙: "CSX",
 };
 
+const iataToCity = Object.entries(cityToIata).reduce((acc, [city, iata]) => {
+  acc[iata] = city;
+  return acc;
+}, {});
+
 function normalizeToDisplayCity(input, fallback) {
   const s = String(input || "").trim();
-  return s || fallback;
+  if (!s) return fallback;
+  if (isIataCode(s) && iataToCity[s]) return iataToCity[s];
+  return s;
 }
 
 function buildFromJuheFlightInfo(list, displayFrom, displayTo) {
@@ -183,4 +190,3 @@ module.exports = async (req, res) => {
     flights,
   });
 };
-
