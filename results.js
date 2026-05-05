@@ -337,6 +337,15 @@ function syncPriceRange(flights) {
     updatePriceDisplay();
 }
 
+function renderHint(title, subtitle) {
+    flightsList.innerHTML = `
+        <div class="no-results">
+            <h3>${title}</h3>
+            <p>${subtitle || ''}</p>
+        </div>
+    `;
+}
+
 function applyAllFilters() {
     let base = allFlights.slice();
     if (activeDaysFilter) {
@@ -351,15 +360,26 @@ async function fetchAndRenderFromInputs(extra) {
     const date = document.getElementById('departure-date')?.value?.trim() || '';
     const days = extra?.days ?? (activeDaysFilter && !date ? activeDaysFilter : null);
 
+    if (!from || !to) {
+        allFlights = [];
+        syncPriceRange(allFlights);
+        renderHint('请输入出发地和目的地', '例如：出发地=上海，目的地=成都');
+        return;
+    }
+
+    if (!date && !days) {
+        allFlights = [];
+        syncPriceRange(allFlights);
+        renderHint('请选择出发日期', '真实航班查询需要日期；也可以点击“最近30天”等选项试试');
+        return;
+    }
+
     try {
         const data = await fetchSearch({ from, to, date, days });
-        if (Array.isArray(data.flights) && data.flights.length) {
-            allFlights = data.flights;
-        } else {
-            allFlights = flightData.slice();
-        }
+        if (Array.isArray(data.flights)) allFlights = data.flights;
+        else allFlights = [];
     } catch (e) {
-        allFlights = flightData.slice();
+        allFlights = [];
     }
 
     syncPriceRange(allFlights);
@@ -620,3 +640,4 @@ function handleUrlParams() {
 
 // 初始化应用
 init();
+
